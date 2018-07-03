@@ -50,8 +50,8 @@ void aws_set_rrs(int r);
 
 
 void s3_set_bucket ( char * const str );
-int s3_get ( IOBuf * b, char * const file );
-int s3_put ( IOBuf * b, char * const file );
+int s3_get ( FILE * b, char * const file );
+int s3_put ( FILE * b, char * const file );
 int s3_delete ( IOBuf * b, char * const file );
 void s3_set_host ( char * const str );
 void s3_set_mime ( char * const str );

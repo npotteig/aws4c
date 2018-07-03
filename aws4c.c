@@ -73,9 +73,9 @@ static void __debug ( char *fmt, ... ) ;
 static char * __aws_get_iso_date ();
 static char * __aws_get_httpdate ();
 static FILE * __aws_getcfg ();
-static int s3_do_get ( IOBuf *b, char * const signature, 
+static int s3_do_get ( FILE *b, char * const signature, 
 			  char * const date, char * const resource );
-static int s3_do_put ( IOBuf *b, char * const signature, 
+static int s3_do_put ( FILE *b, char * const signature, 
 			  char * const date, char * const resource );
 static int s3_do_delete ( IOBuf *b, char * const signature, 
 			  char * const date, char * const resource );
@@ -163,9 +163,8 @@ static void __chomp ( char  * str )
 /// \return number of bytes processed
 static size_t writefunc ( void * ptr, size_t size, size_t nmemb, void * stream )
 {
-  __debug ( "DATA RCVD %d items of size %d ",  nmemb, size );
-  aws_iobuf_append ( stream, ptr, nmemb*size );
-  return nmemb * size;
+    size_t written = fwrite(ptr, size, nmemb, stream);
+    return written;
 }
 
 /// Suppress outputs to stdout
@@ -569,9 +568,10 @@ void s3_set_acl ( char * const str )
 
 
 /// Upload the file into currently selected bucket
-/// \param b I/O buffer
-/// \param file filename
-int s3_put ( IOBuf * b, char * const file )
+/// \param FILE b
+/// \param file filename (can be renamed to a different name in s3 bucket this way)
+// file needs to be open before using fopen with param 'rb'
+int s3_put ( FILE * b, char * const file )
 {
   char * const method = "PUT";
   char  resource [1024];
@@ -587,9 +587,10 @@ int s3_put ( IOBuf * b, char * const file )
 
 
 /// Download the file from the current bucket
-/// \param b I/O buffer
+/// \param FILE b
 /// \param file filename 
-int s3_get ( IOBuf * b, char * const file )
+// file (can be any file name of choice) needs to be open before using fopen with param 'wb'
+int s3_get ( FILE * b, char * const file )
 {
   char * const method = "GET";
   
@@ -625,14 +626,17 @@ int s3_delete ( IOBuf * b, char * const file )
 
 
 
-static int s3_do_put ( IOBuf *b, char * const signature, 
+static int s3_do_put ( FILE *b, char * const signature, 
 		       char * const date, char * const resource )
 {
   char Buf[1024];
-
+  struct stat file_info;
   CURL* ch =  curl_easy_init( );
   struct curl_slist *slist=NULL;
-
+  
+  if(fstat(fileno(b), &file_info) != 0)
+    return 1; /* can't continue */ 
+  
   if (MimeType) {
     snprintf ( Buf, sizeof(Buf), "Content-Type: %s", MimeType );
     slist = curl_slist_append(slist, Buf );
@@ -655,18 +659,18 @@ static int s3_do_put ( IOBuf *b, char * const signature,
   slist = curl_slist_append(slist, Buf );
 
   snprintf ( Buf, sizeof(Buf), "http://%s/%s", S3Host , resource );
-
+  printf("Buf is: %s",Buf);
   curl_easy_setopt ( ch, CURLOPT_HTTPHEADER, slist);
   curl_easy_setopt ( ch, CURLOPT_URL, Buf );
   curl_easy_setopt ( ch, CURLOPT_READDATA, b );
-  if (!debug)
-    curl_easy_setopt ( ch, CURLOPT_WRITEFUNCTION, writedummyfunc );
-  curl_easy_setopt ( ch, CURLOPT_READFUNCTION, readfunc );
-  curl_easy_setopt ( ch, CURLOPT_HEADERFUNCTION, header );
-  curl_easy_setopt ( ch, CURLOPT_HEADERDATA, b );
-  curl_easy_setopt ( ch, CURLOPT_VERBOSE, debug );
-  curl_easy_setopt ( ch, CURLOPT_UPLOAD, 1 );
-  curl_easy_setopt ( ch, CURLOPT_INFILESIZE, b->len );
+  //if (!debug)
+  //  curl_easy_setopt ( ch, CURLOPT_WRITEFUNCTION, writedummyfunc );
+  //curl_easy_setopt ( ch, CURLOPT_READFUNCTION, readfunc );
+  //curl_easy_setopt ( ch, CURLOPT_HEADERFUNCTION, header );
+  //curl_easy_setopt ( ch, CURLOPT_HEADERDATA, b );
+  curl_easy_setopt ( ch, CURLOPT_VERBOSE, 1L );
+  curl_easy_setopt ( ch, CURLOPT_UPLOAD, 1L );
+  curl_easy_setopt (ch, CURLOPT_INFILESIZE,(curl_off_t)file_info.st_size);
   curl_easy_setopt ( ch, CURLOPT_FOLLOWLOCATION, 1 );
 
   int  sc  = curl_easy_perform(ch);
@@ -681,7 +685,7 @@ static int s3_do_put ( IOBuf *b, char * const signature,
 }
 
 
-static int s3_do_get ( IOBuf *b, char * const signature, 
+static int s3_do_get ( FILE *b, char * const signature, 
 		       char * const date, char * const resource )
 {
   char Buf[1024];
@@ -689,8 +693,8 @@ static int s3_do_get ( IOBuf *b, char * const signature,
   CURL* ch =  curl_easy_init( );
   struct curl_slist *slist=NULL;
 
-  slist = curl_slist_append(slist, "If-Modified-Since: Tue, 26 May 2009 18:58:55 GMT" );
-  slist = curl_slist_append(slist, "ETag: \"6ea58533db38eca2c2cc204b7550aab6\"");
+  //slist = curl_slist_append(slist, "If-Modified-Since: Tue, 26 May 2009 18:58:55 GMT" );
+  //slist = curl_slist_append(slist, "ETag: \"6ea58533db38eca2c2cc204b7550aab6\"");
 
   snprintf ( Buf, sizeof(Buf), "Date: %s", date );
   slist = curl_slist_append(slist, Buf );
@@ -698,14 +702,15 @@ static int s3_do_get ( IOBuf *b, char * const signature,
   slist = curl_slist_append(slist, Buf );
 
   snprintf ( Buf, sizeof(Buf), "http://%s/%s", S3Host, resource );
-
+  printf("Buf is: %s\n",Buf);
   curl_easy_setopt ( ch, CURLOPT_HTTPHEADER, slist);
   curl_easy_setopt ( ch, CURLOPT_URL, Buf );
   curl_easy_setopt ( ch, CURLOPT_WRITEFUNCTION, writefunc );
   curl_easy_setopt ( ch, CURLOPT_WRITEDATA, b );
-  curl_easy_setopt ( ch, CURLOPT_HEADERFUNCTION, header );
-  curl_easy_setopt ( ch, CURLOPT_HEADERDATA, b );
-  curl_easy_setopt ( ch, CURLOPT_VERBOSE, debug );
+  //curl_easy_setopt ( ch, CURLOPT_HEADERFUNCTION, header );
+  //curl_easy_setopt ( ch, CURLOPT_HEADERDATA, b );
+  curl_easy_setopt ( ch, CURLOPT_VERBOSE, 1L );
+  curl_easy_setopt ( ch, CURLOPT_FOLLOWLOCATION, 1 );
 
   int  sc  = curl_easy_perform(ch);
   /** \todo check the return code  */

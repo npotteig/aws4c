@@ -3,14 +3,11 @@ VERSION=0.5
 DNAME="aws4c-${VERSION}"
 
 CFLAGS = -g -Wall
-all: s3_get s3_put sqs_example s3_delete
+all: s3_test
 
 aws4c.o: aws4c.h
 
-s3_get: aws4c.o 
-s3_put: aws4c.o 
-s3_delete: aws4c.o 
-sqs_example: aws4c.o 
+s3_test: aws4c.o
 
 dist:
 	mkdir ${DNAME}
@@ -19,7 +16,7 @@ dist:
 
 clean:
 	-rm *.exe
-	-rm s3_get s3_put sqs_example
+	-rm s3_test
 	-rm *.tgz
 	-rm -rf ${DNAME}
 	
